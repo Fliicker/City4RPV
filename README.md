@@ -20,14 +20,14 @@ Boundary-crossing triangles are intentionally retained whole. The result can the
 
 ```powershell
 npm ci
-npm run geometry:sync
+npm run python:sync
 ```
 
-The pipeline uses `geometry/.venv` when it exists. To select another interpreter, set `CITY4RPV_PYTHON` to its executable path.
+The pipeline uses `python/.venv` when it exists. To select another interpreter, set `CITY4RPV_PYTHON` to its executable path.
 
 ## Configuration and usage
 
-Edit the `CONFIG` object near the top of `server/src/main.ts`. It contains the OSM FeatureCollection path, tile level, per-building `bufferMeters` (currently `2`), source directory, cache directory, dataset output root, conversion concurrency, and overwrite behavior. Every input feature must:
+Edit the `CONFIG` object near the top of `node/src/main.ts`. It contains the OSM FeatureCollection path, tile level, per-building `bufferMeters` (currently `2`), source directory, cache directory, dataset output root, conversion concurrency, and overwrite behavior. Every input feature must:
 
 - have Polygon or MultiPolygon geometry in EPSG:4326 `[longitude, latitude]` coordinates;
 - contain a non-empty, unique `properties.full_id`;
@@ -42,7 +42,7 @@ npm run extract
 You can also invoke the same file directly:
 
 ```powershell
-npx tsx server/src/main.ts
+npx tsx node/src/main.ts
 ```
 
 The configured level must be from 13 through 19. Missing coverage is not filled from a parent level. Set `overwrite: true` to replace an existing output directory, or `false` to fail safely when it already exists.

@@ -128,9 +128,9 @@ dist
 # City4RPV generated meshes and conversion caches
 /temp/
 /output/
-/server/dist/
-/geometry/.venv/
-/geometry/__pycache__/
+/node/dist/
+/python/.venv/
+/python/__pycache__/
 
 # pnpm
 .pnpm-store

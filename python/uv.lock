@@ -8,7 +8,7 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "city4rpv-geometry"
+name = "city4rpv-python"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
