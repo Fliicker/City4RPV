@@ -157,15 +157,16 @@ async function prepareTile(tile: SelectedTile, outputDir: string): Promise<Prepa
 
 function findPython(projectRoot: string): string {
   if (process.env.CITY4RPV_PYTHON) return process.env.CITY4RPV_PYTHON;
+  const pythonRoot = path.join(projectRoot, 'toolchains', 'tiles-to-mesh', 'python');
   const candidates = process.platform === 'win32'
-    ? [path.join(projectRoot, 'python', '.venv', 'Scripts', 'python.exe')]
-    : [path.join(projectRoot, 'python', '.venv', 'bin', 'python')];
+    ? [path.join(pythonRoot, '.venv', 'Scripts', 'python.exe')]
+    : [path.join(pythonRoot, '.venv', 'bin', 'python')];
   return candidates.find(candidate => fs.existsSync(candidate)) ?? (process.platform === 'win32' ? 'python' : 'python3');
 }
 
 async function runPythonBatch(projectRoot: string, manifestPath: string): Promise<void> {
   const python = findPython(projectRoot);
-  const script = path.join(projectRoot, 'python', 'convert_batch.py');
+  const script = path.join(projectRoot, 'toolchains', 'tiles-to-mesh', 'python', 'convert_batch.py');
   await new Promise<void>((resolve, reject) => {
     const child = spawn(python, [script, manifestPath], {
       cwd: projectRoot,

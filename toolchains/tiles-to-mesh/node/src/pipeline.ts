@@ -86,6 +86,20 @@ function formatElapsed(startedAt: number): string {
   return `${((Date.now() - startedAt) / 1000).toFixed(2)}s`;
 }
 
+async function renameDirectoryWithRetry(source: string, target: string): Promise<void> {
+  const retryable = new Set(['EPERM', 'EACCES', 'EBUSY', 'ENOTEMPTY']);
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await fs.promises.rename(source, target);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (attempt >= 7 || !code || !retryable.has(code)) throw error;
+      await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
+    }
+  }
+}
+
 function readFullId(feature: PolygonFeature, index: number, seen: Set<string>): string {
   const value = feature.properties?.full_id;
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -180,6 +194,21 @@ function writeBuildingMetadata(options: {
   fs.writeFileSync(path.join(outputDir, 'metadata.json'), JSON.stringify(metadata, null, 2), 'utf8');
 }
 
+function writeBuildingManifest(options: {
+  outputDir: string;
+  job: BuildingJob;
+}): void {
+  const { outputDir, job } = options;
+  const manifest = {
+    schemaVersion: 1,
+    artifactType: 'textured-mesh',
+    buildingId: job.fullId,
+    obj: 'model.obj',
+    mtl: 'model.mtl',
+  };
+  fs.writeFileSync(path.join(outputDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
+}
+
 export async function runExtraction(options: ExtractionOptions, projectRoot: string): Promise<void> {
   assertInputs(options, projectRoot);
   const totalStartedAt = Date.now();
@@ -269,6 +298,10 @@ export async function runExtraction(options: ExtractionOptions, projectRoot: str
         mergeResult,
         cacheHits: cacheHitIds,
       });
+      writeBuildingManifest({
+        outputDir,
+        job,
+      });
       summaries.push({ fullId: job.fullId, tileCount: job.tiles.length, faceCount: mergeResult.faceCount });
       if ((index + 1) % 10 === 0 || index + 1 === jobs.length) {
         console.log(`[3/3] extracted ${index + 1}/${jobs.length} building mesh(es)`);
@@ -287,9 +320,36 @@ export async function runExtraction(options: ExtractionOptions, projectRoot: str
       convertedTiles: cachedTiles.length - cacheHitIds.size,
       outputs: summaries,
     }, null, 2), 'utf8');
+    fs.writeFileSync(path.join(stagingDir, 'manifest.json'), JSON.stringify({
+      schemaVersion: 1,
+      artifactType: 'textured-mesh-dataset',
+      buildings: summaries.map(item => ({
+        buildingId: item.fullId,
+        manifest: `${item.fullId}/manifest.json`,
+      })),
+    }, null, 2), 'utf8');
 
-    if (fs.existsSync(options.outputDir)) fs.rmSync(options.outputDir, { recursive: true, force: true });
-    fs.renameSync(stagingDir, options.outputDir);
+    const backupDir = `${options.outputDir}.previous-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+    let previousOutputMoved = false;
+    try {
+      if (fs.existsSync(options.outputDir)) {
+        await renameDirectoryWithRetry(options.outputDir, backupDir);
+        previousOutputMoved = true;
+      }
+      await renameDirectoryWithRetry(stagingDir, options.outputDir);
+    } catch (error) {
+      if (previousOutputMoved && !fs.existsSync(options.outputDir) && fs.existsSync(backupDir)) {
+        await renameDirectoryWithRetry(backupDir, options.outputDir);
+      }
+      throw error;
+    }
+    if (previousOutputMoved && fs.existsSync(backupDir)) {
+      try {
+        fs.rmSync(backupDir, { recursive: true, force: true });
+      } catch (error) {
+        console.warn(`Previous output could not be removed and remains at ${backupDir}: ${error}`);
+      }
+    }
     console.log(`[3/3] building meshes finished in ${formatElapsed(extractionStartedAt)}`);
     console.log(`Output root: ${options.outputDir}`);
     console.log(`Done in ${formatElapsed(totalStartedAt)}`);

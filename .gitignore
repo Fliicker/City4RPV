@@ -125,12 +125,11 @@ dist
 # Stores Visual Studio Code versions used for testing Visual Studio Code extensions
 .vscode-test
 
-# City4RPV generated meshes and conversion caches
-/temp/
-/output/
-/node/dist/
-/python/.venv/
-/python/__pycache__/
+# City4RPV generated artifacts and local tool environments
+/artifacts/
+/toolchains/**/dist/
+/toolchains/**/.venv/
+/toolchains/**/__pycache__/
 
 # pnpm
 .pnpm-store
@@ -155,5 +154,4 @@ vite.config.ts.timestamp-*
 # Turbo Repo
 .turbo
 
-/temp
 /GeoWind3D-public

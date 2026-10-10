@@ -16,7 +16,7 @@ import { mergeTexturedObjs } from '../objMerge';
 import { readRootTransform, selectTiles } from '../tileSelector';
 
 const tilesDir = process.env.MUNICH_TILES_DIR;
-const projectRoot = path.resolve(__dirname, '..', '..', '..');
+const projectRoot = path.resolve(__dirname, '..', '..', '..', '..', '..');
 
 test('Munich level-13 and level-19 samples convert, clip, texture, and reuse their tile caches', {
   skip: !tilesDir,
