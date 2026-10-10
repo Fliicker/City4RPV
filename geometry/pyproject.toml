@@ -1,0 +1,12 @@
+[project]
+name = "city4rpv-geometry"
+version = "0.1.0"
+description = "Geometry conversion helpers for the City4RPV 3D Tiles extractor"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "pillow>=10.0.0",
+    "trimesh>=4.10.1",
+]
+
+[tool.uv]
+package = false

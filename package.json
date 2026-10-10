@@ -1,0 +1,28 @@
+{
+  "name": "city4rpv-tiles-extractor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Extract one textured OBJ mesh per OSM building feature from 3D Tiles.",
+  "scripts": {
+    "build": "tsc -p server/tsconfig.json",
+    "extract": "tsx server/src/main.ts",
+    "test": "npm run build --silent && node --test server/dist/tests/*.test.js",
+    "test:integration": "npm run build --silent && node --test server/dist/tests/*.integration.test.js",
+    "geometry:sync": "uv sync --project geometry"
+  },
+  "dependencies": {
+    "@turf/boolean-intersects": "^7.3.1",
+    "@turf/helpers": "^7.3.1",
+    "3d-tiles-tools": "0.5.1",
+    "gltf-pipeline": "^4.3.0"
+  },
+  "devDependencies": {
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
