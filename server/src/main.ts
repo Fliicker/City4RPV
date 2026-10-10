@@ -14,6 +14,9 @@ const CONFIG: ExtractionOptions = {
   // Exact source tile level. Supported values: 13 through 19.
   level: 19,
 
+  // Expand every OSM building footprint by this distance before clipping.
+  bufferMeters: 2,
+
   // Directory containing tileset.json and the 13..19 subdirectories.
   tilesDir: 'E:\\data\\Google3DTile\\Cities\\Munich',
 

@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parsePolygonFeatureCollection, parsePolygonGeoJson } from '../geojson';
+import {
+  bufferPolygonFeatureMeters,
+  getGeometryBbox,
+  parsePolygonFeatureCollection,
+  parsePolygonGeoJson,
+} from '../geojson';
 
 test('GeoJSON parser closes an open polygon ring', () => {
   const parsed = parsePolygonGeoJson({
@@ -60,4 +65,25 @@ test('OSM collection parser preserves multiple polygon features and properties',
   assert.equal(features.length, 2);
   assert.deepEqual(features.map(item => item.properties?.full_id), ['w1', 'r2']);
   assert.deepEqual(features.map(item => item.geometry.type), ['Polygon', 'MultiPolygon']);
+});
+
+test('metric building buffer expands an EPSG:4326 footprint and preserves its identity', () => {
+  const source = parsePolygonGeoJson({
+    type: 'Feature',
+    properties: { full_id: 'w1' },
+    geometry: {
+      type: 'Polygon',
+      coordinates: [[[11.57, 48.13], [11.5701, 48.13], [11.5701, 48.1301], [11.57, 48.1301], [11.57, 48.13]]],
+    },
+  });
+  const original = getGeometryBbox(source.geometry);
+  const expanded = bufferPolygonFeatureMeters(source, 2);
+  const buffered = getGeometryBbox(expanded.geometry);
+  assert.ok(buffered.minLon < original.minLon);
+  assert.ok(buffered.minLat < original.minLat);
+  assert.ok(buffered.maxLon > original.maxLon);
+  assert.ok(buffered.maxLat > original.maxLat);
+  assert.equal(expanded.properties?.full_id, 'w1');
+  assert.equal(bufferPolygonFeatureMeters(source, 0), source);
+  assert.throws(() => bufferPolygonFeatureMeters(source, -1), /non-negative/);
 });

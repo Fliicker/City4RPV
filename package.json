@@ -11,6 +11,7 @@
     "geometry:sync": "uv sync --project geometry"
   },
   "dependencies": {
+    "@turf/buffer": "^7.3.1",
     "@turf/boolean-intersects": "^7.3.1",
     "@turf/helpers": "^7.3.1",
     "3d-tiles-tools": "0.5.1",

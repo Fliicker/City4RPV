@@ -5,9 +5,10 @@ This repository contains a TypeScript entry point that extracts one textured OBJ
 ## What it does
 
 1. Loads and validates every building feature and its unique `full_id`.
-2. Finds the union of octant tiles needed by the whole dataset and converts each `b3dm` only once through GLB and separated glTF to the persistent textured OBJ cache.
-3. For each building, applies the root tileset transform, builds an ENU frame at that building footprint's bounding-box center, and retains every complete triangle whose horizontal projection intersects the footprint.
-4. Writes an independent textured OBJ bundle under a directory named exactly from the building's `full_id`.
+2. Expands every building footprint by the configured metric buffer (2 metres by default).
+3. Finds the union of octant tiles needed by all buffered footprints and converts each `b3dm` only once through GLB and separated glTF to the persistent textured OBJ cache.
+4. For each building, applies the root tileset transform, builds an ENU frame at the buffered footprint's bounding-box center, and retains every complete triangle whose horizontal projection intersects that buffered footprint.
+5. Writes an independent textured OBJ bundle under a directory named exactly from the building's `full_id`.
 
 Boundary-crossing triangles are intentionally retained whole. The result can therefore extend slightly beyond the GeoJSON boundary. No tile or triangle R-tree is created.
 
@@ -26,7 +27,7 @@ The pipeline uses `geometry/.venv` when it exists. To select another interpreter
 
 ## Configuration and usage
 
-Edit the `CONFIG` object near the top of `server/src/main.ts`. It contains the OSM FeatureCollection path, tile level, source directory, cache directory, dataset output root, conversion concurrency, and overwrite behavior. Every input feature must:
+Edit the `CONFIG` object near the top of `server/src/main.ts`. It contains the OSM FeatureCollection path, tile level, per-building `bufferMeters` (currently `2`), source directory, cache directory, dataset output root, conversion concurrency, and overwrite behavior. Every input feature must:
 
 - have Polygon or MultiPolygon geometry in EPSG:4326 `[longitude, latitude]` coordinates;
 - contain a non-empty, unique `properties.full_id`;
@@ -78,9 +79,9 @@ Final OBJ coordinates are metres in an AOI-local ENU frame:
 - X: east
 - Y: north
 - Z: up
-- Origin: center of the individual building footprint's bounding box at WGS84 ellipsoid height 0
+- Origin: center of the individual buffered footprint's bounding box at WGS84 ellipsoid height 0
 
-Each building directory has its own `metadata.json` recording the `full_id`, original properties, WGS84/ENU origin, transforms, selected tiles, and mesh counts. The root `metadata.json` summarizes the complete batch. Cached tile OBJs remain in the original tileset-local coordinate system so they can be reused by different buildings and datasets.
+Each building directory has its own `metadata.json` recording the `full_id`, original properties and bounding box, buffer distance and buffered bounding box, WGS84/ENU origin, transforms, selected tiles, and mesh counts. The root `metadata.json` summarizes the complete batch. Cached tile OBJs remain in the original tileset-local coordinate system so they can be reused by different buildings and datasets.
 
 ## Tests
 

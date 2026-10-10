@@ -6,6 +6,7 @@ import test from 'node:test';
 import { EnuTransform, polygonFeatureToEnu } from '../coordinates';
 import { ensureTileObjs } from '../conversion';
 import {
+  bufferPolygonFeatureMeters,
   combinePolygonFeatures,
   getGeometryBbox,
   loadPolygonFeatureCollection,
@@ -65,6 +66,7 @@ test('Munich OSM building dataset resolves all features and shared level-19 tile
   );
   assert.equal(features.length, 172);
   assert.equal(new Set(features.map(item => item.properties?.full_id)).size, 172);
-  const tiles = selectTiles(tilesDir!, 19, combinePolygonFeatures(features));
-  assert.equal(tiles.length, 39);
+  const bufferedFeatures = features.map(feature => bufferPolygonFeatureMeters(feature, 2));
+  const tiles = selectTiles(tilesDir!, 19, combinePolygonFeatures(bufferedFeatures));
+  assert.ok(tiles.length >= 39);
 });

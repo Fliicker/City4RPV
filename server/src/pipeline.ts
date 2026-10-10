@@ -4,6 +4,7 @@ import path from 'node:path';
 import { EnuTransform, polygonFeatureToEnu } from './coordinates';
 import { ensureTileObjs } from './conversion';
 import {
+  bufferPolygonFeatureMeters,
   combinePolygonFeatures,
   getGeometryBbox,
   loadPolygonFeatureCollection,
@@ -15,6 +16,7 @@ import { filterSelectedTiles, readRootTransform, selectTiles, type SelectedTile 
 export type ExtractionOptions = {
   osmBuildingsPath: string;
   level: number;
+  bufferMeters: number;
   tilesDir: string;
   tempDir: string;
   outputDir: string;
@@ -24,7 +26,8 @@ export type ExtractionOptions = {
 
 type BuildingJob = {
   fullId: string;
-  feature: PolygonFeature;
+  sourceFeature: PolygonFeature;
+  clipFeature: PolygonFeature;
   tiles: SelectedTile[];
 };
 
@@ -49,6 +52,9 @@ function assertInputs(options: ExtractionOptions, projectRoot: string): void {
   }
   if (!Number.isInteger(options.concurrency) || options.concurrency < 1 || options.concurrency > 32) {
     throw new Error('Configured concurrency must be an integer from 1 through 32');
+  }
+  if (!Number.isFinite(options.bufferMeters) || options.bufferMeters < 0) {
+    throw new Error('Configured bufferMeters must be a finite non-negative number');
   }
   if (!fs.existsSync(options.osmBuildingsPath) || !fs.statSync(options.osmBuildingsPath).isFile()) {
     throw new Error(`OSM building GeoJSON not found: ${options.osmBuildingsPath}`);
@@ -94,15 +100,20 @@ function readFullId(feature: PolygonFeature, index: number, seen: Set<string>): 
   return fullId;
 }
 
-function buildJobs(features: PolygonFeature[], selectedTiles: SelectedTile[]): BuildingJob[] {
+function buildJobs(
+  sourceFeatures: PolygonFeature[],
+  clipFeatures: PolygonFeature[],
+  selectedTiles: SelectedTile[],
+): BuildingJob[] {
   const seen = new Set<string>();
-  return features.map((feature, index) => {
-    const fullId = readFullId(feature, index, seen);
-    const tiles = filterSelectedTiles(selectedTiles, feature);
+  return sourceFeatures.map((sourceFeature, index) => {
+    const fullId = readFullId(sourceFeature, index, seen);
+    const clipFeature = clipFeatures[index];
+    const tiles = filterSelectedTiles(selectedTiles, clipFeature);
     if (tiles.length === 0) {
       throw new Error(`Building ${fullId} does not intersect any available tile at the configured level`);
     }
-    return { fullId, feature, tiles };
+    return { fullId, sourceFeature, clipFeature, tiles };
   });
 }
 
@@ -110,6 +121,7 @@ function writeBuildingMetadata(options: {
   outputDir: string;
   sourcePath: string;
   level: number;
+  bufferMeters: number;
   tilesDir: string;
   job: BuildingJob;
   rootTransform: number[];
@@ -117,17 +129,20 @@ function writeBuildingMetadata(options: {
   mergeResult: MergeResult;
   cacheHits: Set<string>;
 }): void {
-  const { outputDir, sourcePath, level, tilesDir, job, rootTransform, transform, mergeResult, cacheHits } = options;
-  const bbox = getGeometryBbox(job.feature.geometry);
+  const {
+    outputDir, sourcePath, level, bufferMeters, tilesDir, job, rootTransform, transform, mergeResult, cacheHits,
+  } = options;
+  const sourceBbox = getGeometryBbox(job.sourceFeature.geometry);
+  const clipBbox = getGeometryBbox(job.clipFeature.geometry);
   const metadata = {
-    formatVersion: 2,
+    formatVersion: 3,
     createdAt: new Date().toISOString(),
     building: {
       fullId: job.fullId,
-      properties: job.feature.properties ?? {},
+      properties: job.sourceFeature.properties ?? {},
       sourceGeojsonPath: sourcePath,
       crs: 'EPSG:4326',
-      bbox: [bbox.minLon, bbox.minLat, bbox.maxLon, bbox.maxLat],
+      bbox: [sourceBbox.minLon, sourceBbox.minLat, sourceBbox.maxLon, sourceBbox.maxLat],
     },
     input: { level, tilesDir },
     outputCoordinates: {
@@ -142,7 +157,9 @@ function writeBuildingMetadata(options: {
     },
     clipping: {
       mode: 'retain_intersecting_triangles',
-      note: 'Boundary-crossing triangles are retained whole and may extend beyond the building footprint.',
+      bufferMeters,
+      bufferedBbox: [clipBbox.minLon, clipBbox.minLat, clipBbox.maxLon, clipBbox.maxLat],
+      note: 'The source footprint is buffered before clipping. Boundary-crossing triangles are retained whole.',
       spatialIndexBuilt: false,
     },
     tiles: {
@@ -166,15 +183,23 @@ function writeBuildingMetadata(options: {
 export async function runExtraction(options: ExtractionOptions, projectRoot: string): Promise<void> {
   assertInputs(options, projectRoot);
   const totalStartedAt = Date.now();
-  const features = loadPolygonFeatureCollection(options.osmBuildingsPath);
-  const combinedFootprint = combinePolygonFeatures(features);
+  const sourceFeatures = loadPolygonFeatureCollection(options.osmBuildingsPath);
+  const clipFeatures = sourceFeatures.map((feature, index) => {
+    try {
+      return bufferPolygonFeatureMeters(feature, options.bufferMeters);
+    } catch (error) {
+      const id = feature.properties?.full_id ?? `index ${index}`;
+      throw new Error(`Unable to buffer building ${id}: ${error instanceof Error ? error.message : error}`);
+    }
+  });
+  const combinedFootprint = combinePolygonFeatures(clipFeatures);
 
   const selectionStartedAt = Date.now();
   const selectedTiles = selectTiles(options.tilesDir, options.level, combinedFootprint);
   if (selectedTiles.length === 0) {
     throw new Error('The OSM building dataset does not intersect any available tile at the configured level');
   }
-  const jobs = buildJobs(features, selectedTiles);
+  const jobs = buildJobs(sourceFeatures, clipFeatures, selectedTiles);
   console.log(
     `[1/3] loaded ${jobs.length} building(s) and selected ${selectedTiles.length} unique tile(s) `
     + `in ${formatElapsed(selectionStartedAt)}`,
@@ -210,7 +235,7 @@ export async function runExtraction(options: ExtractionOptions, projectRoot: str
     const extractionStartedAt = Date.now();
     for (let index = 0; index < jobs.length; index += 1) {
       const job = jobs[index];
-      const bbox = getGeometryBbox(job.feature.geometry);
+      const bbox = getGeometryBbox(job.clipFeature.geometry);
       const origin: [number, number, number] = [
         (bbox.minLon + bbox.maxLon) / 2,
         (bbox.minLat + bbox.maxLat) / 2,
@@ -226,7 +251,7 @@ export async function runExtraction(options: ExtractionOptions, projectRoot: str
       const mergeResult = mergeTexturedObjs({
         tiles: tileObjs,
         outputDir,
-        clipFeature: polygonFeatureToEnu(job.feature, transform),
+        clipFeature: polygonFeatureToEnu(job.clipFeature, transform),
         transform,
       });
       if (mergeResult.faceCount === 0) {
@@ -236,6 +261,7 @@ export async function runExtraction(options: ExtractionOptions, projectRoot: str
         outputDir,
         sourcePath: options.osmBuildingsPath,
         level: options.level,
+        bufferMeters: options.bufferMeters,
         tilesDir: options.tilesDir,
         job,
         rootTransform,
@@ -250,10 +276,11 @@ export async function runExtraction(options: ExtractionOptions, projectRoot: str
     }
 
     fs.writeFileSync(path.join(stagingDir, 'metadata.json'), JSON.stringify({
-      formatVersion: 2,
+      formatVersion: 3,
       createdAt: new Date().toISOString(),
       sourceGeojsonPath: options.osmBuildingsPath,
       level: options.level,
+      bufferMeters: options.bufferMeters,
       featureCount: jobs.length,
       selectedTileCount: selectedTiles.length,
       cacheHits: cacheHitIds.size,

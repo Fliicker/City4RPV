@@ -7,6 +7,7 @@ import type {
   Polygon,
   Position,
 } from 'geojson';
+import turfBuffer from '@turf/buffer';
 import { feature } from '@turf/helpers';
 import type { LatLonBbox } from './octantTile';
 
@@ -136,6 +137,18 @@ export function combinePolygonFeatures(features: PolygonFeature[]): PolygonFeatu
     else coordinates.push(...item.geometry.coordinates);
   }
   return feature({ type: 'MultiPolygon', coordinates });
+}
+
+export function bufferPolygonFeatureMeters(input: PolygonFeature, distanceMeters: number): PolygonFeature {
+  if (!Number.isFinite(distanceMeters) || distanceMeters < 0) {
+    throw new Error(`Buffer distance must be a finite non-negative number; received ${distanceMeters}`);
+  }
+  if (distanceMeters === 0) return input;
+  const buffered = turfBuffer(input, distanceMeters, { units: 'meters', steps: 8 });
+  if (!buffered || (buffered.geometry.type !== 'Polygon' && buffered.geometry.type !== 'MultiPolygon')) {
+    throw new Error('Unable to create a polygonal metric buffer for the building feature');
+  }
+  return buffered as PolygonFeature;
 }
 
 export function loadPolygonGeoJson(filePath: string): PolygonFeature {
