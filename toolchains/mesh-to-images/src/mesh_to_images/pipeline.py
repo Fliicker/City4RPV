@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -139,6 +140,55 @@ def _replace_output(staging_dir: Path, output_dir: Path) -> None:
         shutil.rmtree(backup_dir)
 
 
+def _rendered_building_id(line: str) -> str | None:
+    prefix = "Rendered building "
+    stripped = line.strip()
+    if not stripped.startswith(prefix):
+        return None
+    building_id, separator, suffix = stripped[len(prefix):].partition(" (")
+    if not building_id or not separator or not suffix.endswith(" views)"):
+        return None
+    return building_id
+
+
+def _run_blender(command: list[str], cwd: Path, building_ids: set[str]) -> tuple[int, str]:
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+    )
+    recent_lines: deque[str] = deque(maxlen=200)
+    completed: set[str] = set()
+    try:
+        if process.stdout is None:
+            raise RuntimeError("Unable to read Blender output")
+        for line in process.stdout:
+            stripped = line.rstrip()
+            recent_lines.append(stripped)
+            building_id = _rendered_building_id(stripped)
+            if building_id in building_ids and building_id not in completed:
+                completed.add(building_id)
+                print(f"Rendered {len(completed)}/{len(building_ids)}: {building_id}", flush=True)
+        return process.wait(), "\n".join(recent_lines)
+    except BaseException:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        raise
+    finally:
+        if process.stdout is not None:
+            process.stdout.close()
+
+
 def run_pipeline(config: "MeshToImagesConfig") -> None:
     blender = _resolve_blender(config.blender_executable)
     if config.output_dir.exists() and not config.overwrite:
@@ -177,18 +227,14 @@ def run_pipeline(config: "MeshToImagesConfig") -> None:
                     "dimensionMultiple": config.dimension_multiple,
                 },
             }, ensure_ascii=False, indent=2), encoding="utf-8")
-            process = subprocess.run(
+            return_code, recent_output = _run_blender(
                 [str(blender), "--background", "--factory-startup", "--python", str(blender_script), "--", str(request_path)],
-                cwd=tool_root,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=False,
+                tool_root,
+                {job.building_id for job in jobs},
             )
             result = _load_json(result_path) if result_path.is_file() else {}
-            if process.returncode != 0 or result.get("success") is not True:
-                detail = result.get("error") or process.stderr.strip() or process.stdout[-4000:].strip()
+            if return_code != 0 or result.get("success") is not True:
+                detail = result.get("error") or recent_output[-4000:].strip() or "No Blender diagnostic output"
                 raise RuntimeError(f"Blender rendering failed: {detail}")
             buildings = result.get("buildings")
             if not isinstance(buildings, list) or len(buildings) != len(jobs):

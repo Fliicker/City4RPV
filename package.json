@@ -17,6 +17,7 @@
     "mesh-to-images:test:integration": "python toolchains/mesh-to-images/tests/blender_integration.py",
     "images-to-vlm:run": "python toolchains/images-to-vlm/main.py",
     "images-to-vlm:test": "python -m unittest discover -s toolchains/images-to-vlm/tests",
+    "images-to-vlm:test:integration": "python toolchains/images-to-vlm/tests/vllm_integration.py",
     "roof-classification:run": "python workflows/roof-classification/main.py",
     "extract": "npm run tiles-to-mesh:run",
     "test": "npm run tiles-to-mesh:test && npm run mesh-to-images:test && npm run images-to-vlm:test"

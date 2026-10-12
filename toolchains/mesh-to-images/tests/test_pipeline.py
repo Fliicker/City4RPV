@@ -8,9 +8,16 @@ TOOL_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOL_ROOT / "src"))
 
 from mesh_to_images import discover_mesh_jobs  # noqa: E402
+from mesh_to_images.pipeline import _rendered_building_id  # noqa: E402
 
 
 class DiscoverMeshJobsTest(unittest.TestCase):
+    def test_recognizes_only_completed_building_log_lines(self) -> None:
+        self.assertEqual(_rendered_building_id("Rendered building w123 (3 views)"), "w123")
+        self.assertEqual(_rendered_building_id("  Rendered building r9 (3 views)  "), "r9")
+        self.assertIsNone(_rendered_building_id("Fra:1 Mem:20.00M | Rendering 1 / 64 samples"))
+        self.assertIsNone(_rendered_building_id("Rendered building w123"))
+
     def test_discovers_manifest_and_mesh_files(self) -> None:
         with tempfile.TemporaryDirectory() as work:
             root = Path(work)

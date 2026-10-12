@@ -1,13 +1,37 @@
 # images-to-vlm
 
-当前只实现输入边界和任务发现，尚未实现 vLLM 请求与屋顶分类。
+读取 `multiview-images-dataset`，通过 vLLM OpenAI 兼容服务为每栋建筑的三张视图生成规范化屋顶类型。
 
-工具链读取 `multiview-images-dataset` 根 manifest，再读取每栋建筑 manifest 中的通用 `views` 数组。它不依赖 `top`、`front` 等固定字段；每个视图提供图片路径、方位角、高度角和图像尺寸。
+## 运行
 
-未来输出为：
+直接编辑 [config.py](config.py) 后运行：
 
-```text
-artifacts/predictions/<dataset>/<full_id>/result.json
+```powershell
+python toolchains/images-to-vlm/main.py
 ```
 
-其中 `roofType` 是非空字符串。
+默认连接 `http://127.0.0.1:8000/v1`，模型为 `/root/models/Qwen3-VL-2B-Instruct-GPTQ-Int4`。每栋建筑对应一个三图请求，默认并发数为 8。
+
+输出结构：
+
+```text
+artifacts/predictions/<dataset>/
+  manifest.json
+  <full_id>/
+    result.json
+```
+
+模型输出由 vLLM 约束为六个中文类别，再确定性转换为 `flat`、`pitched`、`curved`、`dome`、`pyramidal` 或 `other`。
+
+`overwrite=False` 时会复用已有且格式有效的单栋结果；当前不使用图片或配置指纹，因此图片、模型或推理配置变化后应设置 `overwrite=True`。
+
+临时连接错误、超时、HTTP 429 和 5xx 会自动重试。部分建筑失败时，已完成的单栋结果会保留，进程以非零状态结束；再次运行可补齐。
+
+## 测试
+
+```powershell
+npm run images-to-vlm:test
+npm run images-to-vlm:test:integration
+```
+
+集成测试会向配置的真实 vLLM 服务发送一栋建筑的三张图片。

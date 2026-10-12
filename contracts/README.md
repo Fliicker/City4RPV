@@ -44,6 +44,20 @@
 
 ## 屋顶分类结果
 
+根 manifest 使用 `artifactType: "roof-classification-dataset"`，并通过 `buildings` 数组索引每栋建筑的 `result.json`：
+
+```json
+{
+  "schemaVersion": 1,
+  "artifactType": "roof-classification-dataset",
+  "buildings": [
+    { "buildingId": "w1", "result": "w1/result.json" }
+  ]
+}
+```
+
+单栋结果：
+
 ```json
 {
   "schemaVersion": 1,
@@ -52,5 +66,7 @@
   "roofType": "flat"
 }
 ```
+
+`roofType` 的规范值为 `flat`、`pitched`、`curved`、`dome`、`pyramidal` 或 `other`。
 
 坐标、瓦片缓存和统计细节属于可选的 `metadata.json`，不参与工具链间的数据传递。

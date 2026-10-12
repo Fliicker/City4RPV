@@ -30,6 +30,8 @@ artifacts/images/<dataset>/
 
 全部建筑先写入 staging；只有整批成功后才替换正式目录。首版不使用渲染缓存。
 
+运行时每当一栋建筑的三张视图和单体 manifest 全部完成，会输出一次 `Rendered <完成数>/<总数>: <full_id>`；Blender 的其他内部日志仅保留用于失败诊断。
+
 ## 测试
 
 ```powershell

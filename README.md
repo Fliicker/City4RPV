@@ -22,7 +22,7 @@ toolchains/
     node/
     python/
   mesh-to-images/      # Blender 多视图批量渲染
-  images-to-vlm/       # vLLM 分类框架（推理尚未实现）
+  images-to-vlm/       # vLLM 多视图屋顶分类
 contracts/             # manifest 格式说明
 workflows/
   roof-classification/ # 三阶段顺序编排
@@ -42,6 +42,7 @@ npm ci
 npm run tiles-to-mesh:python:sync
 npm run tiles-to-mesh:run
 npm run mesh-to-images:run
+npm run images-to-vlm:run
 ```
 
 `tiles-to-mesh` 的 OBJ 使用局部 ENU 米制坐标：X 向东、Y 向北、Z 向上。`mesh-to-images` 为每个 `full_id` 输出 `view_001.png`、`view_002.png`、`view_003.png` 以及单体 manifest，并在数据集根目录输出索引 manifest。
@@ -52,11 +53,12 @@ npm run mesh-to-images:run
 npm run roof-classification:run
 ```
 
-目前会在 `images-to-vlm` 的未实现推理边界明确停止，不生成伪造分类结果。
+三个阶段均已实现。最后阶段为每栋建筑输出一个规范化 `roofType`，并生成分类数据集根 manifest。
 
 ## 测试
 
 ```powershell
 npm test
 npm run mesh-to-images:test:integration
+npm run images-to-vlm:test:integration
 ```
