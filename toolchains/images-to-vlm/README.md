@@ -1,11 +1,13 @@
 # images-to-vlm
 
-Planned input: one `multiview-images` manifest per OSM `full_id`, referencing `front.png`, `oblique.png`, and `top.png`.
+当前只实现输入边界和任务发现，尚未实现 vLLM 请求与屋顶分类。
 
-Planned output:
+工具链读取 `multiview-images-dataset` 根 manifest，再读取每栋建筑 manifest 中的通用 `views` 数组。它不依赖 `top`、`front` 等固定字段；每个视图提供图片路径、方位角、高度角和图像尺寸。
+
+未来输出为：
 
 ```text
 artifacts/predictions/<dataset>/<full_id>/result.json
 ```
 
-`result.json` is a structured artifact whose current classification payload is a single non-empty `roofType` string. The view discovery and result-writing boundaries are present; vLLM request construction, prompting, and response parsing are intentionally not implemented yet.
+其中 `roofType` 是非空字符串。
