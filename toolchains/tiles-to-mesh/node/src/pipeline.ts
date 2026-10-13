@@ -86,6 +86,62 @@ function formatElapsed(startedAt: number): string {
   return `${((Date.now() - startedAt) / 1000).toFixed(2)}s`;
 }
 
+function isAccessError(error: unknown): boolean {
+  return error instanceof Error
+    && 'code' in error
+    && ((error as NodeJS.ErrnoException).code === 'EPERM' || (error as NodeJS.ErrnoException).code === 'EACCES');
+}
+
+async function replaceOutputDirectory(stagingDir: string, outputDir: string): Promise<void> {
+  const backupDir = `${outputDir}.previous-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+  let previousOutputMoved = false;
+  try {
+    if (fs.existsSync(outputDir)) {
+      try {
+        await renameDirectoryWithRetry(outputDir, backupDir);
+        previousOutputMoved = true;
+      } catch (error) {
+        if (!isAccessError(error)) throw error;
+        // Some Windows processes keep directory handles open and prevent a directory
+        // rename even though its contents remain writable. Keep a recoverable copy,
+        // then replace the tree in place only for this access-error fallback.
+        fs.cpSync(outputDir, backupDir, { recursive: true, errorOnExist: true });
+        previousOutputMoved = true;
+        fs.rmSync(outputDir, { recursive: true, force: true });
+      }
+    }
+    try {
+      await renameDirectoryWithRetry(stagingDir, outputDir);
+    } catch (error) {
+      if (!isAccessError(error)) throw error;
+      fs.cpSync(stagingDir, outputDir, { recursive: true, errorOnExist: true });
+      fs.rmSync(stagingDir, { recursive: true, force: true });
+    }
+  } catch (error) {
+    if (previousOutputMoved && fs.existsSync(backupDir)) {
+      try {
+        if (fs.existsSync(outputDir)) fs.rmSync(outputDir, { recursive: true, force: true });
+        try {
+          await renameDirectoryWithRetry(backupDir, outputDir);
+        } catch (restoreError) {
+          if (!isAccessError(restoreError)) throw restoreError;
+          fs.cpSync(backupDir, outputDir, { recursive: true, errorOnExist: true });
+        }
+      } catch (restoreError) {
+        throw new AggregateError([error, restoreError], 'Output replacement and backup restoration both failed');
+      }
+    }
+    throw error;
+  }
+  if (fs.existsSync(backupDir)) {
+    try {
+      fs.rmSync(backupDir, { recursive: true, force: true });
+    } catch (error) {
+      console.warn(`Previous output could not be removed and remains at ${backupDir}: ${error}`);
+    }
+  }
+}
+
 async function renameDirectoryWithRetry(source: string, target: string): Promise<void> {
   const retryable = new Set(['EPERM', 'EACCES', 'EBUSY', 'ENOTEMPTY']);
   for (let attempt = 0; ; attempt += 1) {
@@ -170,10 +226,10 @@ function writeBuildingMetadata(options: {
       tilesetLocalToEnuColumnMajor: transform.sourceLocalToEnuMatrix4ColumnMajor(),
     },
     clipping: {
-      mode: 'retain_intersecting_triangles',
+      mode: 'clip_triangles_to_buffered_footprint',
       bufferMeters,
       bufferedBbox: [clipBbox.minLon, clipBbox.minLat, clipBbox.maxLon, clipBbox.maxLat],
-      note: 'The source footprint is buffered before clipping. Boundary-crossing triangles are retained whole.',
+      note: 'The source footprint is buffered before clipping. Boundary-crossing triangles are cut with interpolated positions, texture coordinates, and normals.',
       spatialIndexBuilt: false,
     },
     tiles: {
@@ -329,27 +385,7 @@ export async function runExtraction(options: ExtractionOptions, projectRoot: str
       })),
     }, null, 2), 'utf8');
 
-    const backupDir = `${options.outputDir}.previous-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
-    let previousOutputMoved = false;
-    try {
-      if (fs.existsSync(options.outputDir)) {
-        await renameDirectoryWithRetry(options.outputDir, backupDir);
-        previousOutputMoved = true;
-      }
-      await renameDirectoryWithRetry(stagingDir, options.outputDir);
-    } catch (error) {
-      if (previousOutputMoved && !fs.existsSync(options.outputDir) && fs.existsSync(backupDir)) {
-        await renameDirectoryWithRetry(backupDir, options.outputDir);
-      }
-      throw error;
-    }
-    if (previousOutputMoved && fs.existsSync(backupDir)) {
-      try {
-        fs.rmSync(backupDir, { recursive: true, force: true });
-      } catch (error) {
-        console.warn(`Previous output could not be removed and remains at ${backupDir}: ${error}`);
-      }
-    }
+    await replaceOutputDirectory(stagingDir, options.outputDir);
     console.log(`[3/3] building meshes finished in ${formatElapsed(extractionStartedAt)}`);
     console.log(`Output root: ${options.outputDir}`);
     console.log(`Done in ${formatElapsed(totalStartedAt)}`);

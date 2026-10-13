@@ -5,6 +5,7 @@ import { lineString, point, polygon } from '@turf/helpers';
 import type { PolygonFeature } from './geojson';
 import type { EnuTransform, Vec3 } from './coordinates';
 import { getGeometryBbox } from './geojson';
+import { PolygonTriangleClipper, type ClipVertex } from './meshClip';
 
 type ObjReference = { v: number; vt?: number; vn?: number };
 type ObjFace = { refs: [ObjReference, ObjReference, ObjReference]; material: string | null };
@@ -234,6 +235,22 @@ function formatNumber(value: number): string {
   return Number(value.toFixed(9)).toString();
 }
 
+function normalizeNormal(normal: Vec3): Vec3 {
+  const length = Math.hypot(...normal);
+  if (length <= 1e-12) throw new Error('Cannot write a zero-length interpolated normal');
+  return normal.map(value => value / length) as Vec3;
+}
+
+function internAttribute<T extends number[]>(value: T, values: T[], indices: Map<string, number>): number {
+  const key = value.map(formatNumber).join(' ');
+  const existing = indices.get(key);
+  if (existing !== undefined) return existing;
+  const index = values.length;
+  values.push(value);
+  indices.set(key, index);
+  return index;
+}
+
 function formatReference(ref: ObjReference, maps: {
   vertices: Map<number, number>;
   textureCoordinates: Map<number, number>;
@@ -264,7 +281,7 @@ export function mergeTexturedObjs(options: {
   fs.writeFileSync(objOutputPath, 'mtllib model.mtl\n', 'utf8');
   fs.writeFileSync(mtlOutputPath, '# City4RPV merged materials\n\n', 'utf8');
 
-  const clipBbox = getGeometryBbox(clipFeature.geometry);
+  const clipper = new PolygonTriangleClipper(clipFeature);
   const copiedTextures = new Set<string>();
   const retainedTiles: string[] = [];
   let nextVertex = 1;
@@ -276,19 +293,49 @@ export function mergeTexturedObjs(options: {
   for (const tile of tiles) {
     const parsed = parseObj(fs.readFileSync(tile.objPath, 'utf8'));
     const transformedVertices = parsed.vertices.map(vertex => transform.sourcePositionToEnu(vertex));
-    const selectedFaces = parsed.faces.filter(face => projectedTriangleIntersects([
-      transformedVertices[face.refs[0].v],
-      transformedVertices[face.refs[1].v],
-      transformedVertices[face.refs[2].v],
-    ], clipFeature, clipBbox));
-    if (selectedFaces.length === 0) continue;
+    const transformedNormals = parsed.normals.map(normal => transform.sourceNormalToEnu(normal));
+    const clippedFaces: ObjFace[] = [];
+    const outputVertices: Vec3[] = [];
+    const outputTextureCoordinates: number[][] = [];
+    const outputNormals: Vec3[] = [];
+    const vertexIndices = new Map<string, number>();
+    const textureIndices = new Map<string, number>();
+    const normalIndices = new Map<string, number>();
+
+    for (const face of parsed.faces) {
+      const hasTextureCoordinates = face.refs.every(ref => ref.vt !== undefined);
+      const hasNormals = face.refs.every(ref => ref.vn !== undefined);
+      const source = face.refs.map(ref => {
+        const vertex: ClipVertex = { position: transformedVertices[ref.v] };
+        if (hasTextureCoordinates) vertex.textureCoordinate = parsed.textureCoordinates[ref.vt!];
+        if (hasNormals) vertex.normal = transformedNormals[ref.vn!];
+        return vertex;
+      }) as [ClipVertex, ClipVertex, ClipVertex];
+
+      for (const triangle of clipper.clip(source)) {
+        const refs = triangle.map(vertex => {
+          const ref: ObjReference = {
+            v: internAttribute(vertex.position, outputVertices, vertexIndices),
+          };
+          if (vertex.textureCoordinate) {
+            ref.vt = internAttribute(vertex.textureCoordinate, outputTextureCoordinates, textureIndices);
+          }
+          if (vertex.normal) {
+            ref.vn = internAttribute(normalizeNormal(vertex.normal), outputNormals, normalIndices);
+          }
+          return ref;
+        }) as [ObjReference, ObjReference, ObjReference];
+        clippedFaces.push({ refs, material: face.material });
+      }
+    }
+    if (clippedFaces.length === 0) continue;
     retainedTiles.push(tile.tileId);
 
     const vertexMap = new Map<number, number>();
     const textureMap = new Map<number, number>();
     const normalMap = new Map<number, number>();
     const usedMaterials = new Set<string>();
-    for (const face of selectedFaces) {
+    for (const face of clippedFaces) {
       usedMaterials.add(face.material ?? '__default__');
       for (const ref of face.refs) {
         if (!vertexMap.has(ref.v)) vertexMap.set(ref.v, nextVertex++);
@@ -317,19 +364,19 @@ export function mergeTexturedObjs(options: {
 
     const objLines: string[] = [`o tile_${tile.tileId}`];
     for (const [oldIndex] of vertexMap) {
-      const vertex = transformedVertices[oldIndex];
+      const vertex = outputVertices[oldIndex];
       objLines.push(`v ${vertex.map(formatNumber).join(' ')}`);
     }
     for (const [oldIndex] of textureMap) {
-      objLines.push(`vt ${parsed.textureCoordinates[oldIndex].map(formatNumber).join(' ')}`);
+      objLines.push(`vt ${outputTextureCoordinates[oldIndex].map(formatNumber).join(' ')}`);
     }
     for (const [oldIndex] of normalMap) {
-      const normal = transform.sourceNormalToEnu(parsed.normals[oldIndex]);
+      const normal = outputNormals[oldIndex];
       objLines.push(`vn ${normal.map(formatNumber).join(' ')}`);
     }
     let activeMaterial: string | null = null;
     const maps = { vertices: vertexMap, textureCoordinates: textureMap, normals: normalMap };
-    for (const face of selectedFaces) {
+    for (const face of clippedFaces) {
       const materialKey = face.material ?? '__default__';
       const materialName = materialNames.get(materialKey);
       if (!materialName) throw new Error(`Internal material mapping error for ${materialKey}`);
@@ -340,7 +387,7 @@ export function mergeTexturedObjs(options: {
       objLines.push(`f ${face.refs.map(ref => formatReference(ref, maps)).join(' ')}`);
     }
     fs.appendFileSync(objOutputPath, `${objLines.join('\n')}\n`, 'utf8');
-    faceCount += selectedFaces.length;
+    faceCount += clippedFaces.length;
   }
 
   return {

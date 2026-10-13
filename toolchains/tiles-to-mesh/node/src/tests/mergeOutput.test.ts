@@ -46,10 +46,12 @@ test('textured merge compacts indices, renames material, and copies texture', ()
       transform,
     });
 
-    assert.equal(result.faceCount, 1);
-    assert.equal(result.vertexCount, 3);
+    assert.equal(result.faceCount, 2);
+    assert.equal(result.vertexCount, 4);
     assert.equal(result.textureCount, 1);
-    assert.equal(parseObj(fs.readFileSync(path.join(outputDir, 'model.obj'), 'utf8')).faces.length, 1);
+    const merged = parseObj(fs.readFileSync(path.join(outputDir, 'model.obj'), 'utf8'));
+    assert.equal(merged.faces.length, 2);
+    assert.equal(new Set(merged.faces.flatMap(face => face.refs.map(ref => ref.v))).size, merged.vertices.length);
     assert.match(fs.readFileSync(path.join(outputDir, 'model.mtl'), 'utf8'), /map_Kd textures\/tile0_texture\.jpg/);
     assert.equal(fs.existsSync(path.join(outputDir, 'textures', 'tile0_texture.jpg')), true);
   } finally {

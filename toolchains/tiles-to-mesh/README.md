@@ -15,3 +15,5 @@ npm run tiles-to-mesh:run
 ```
 
 Each building output contains both detailed `metadata.json` and the small cross-toolchain `manifest.json` documented in `contracts/README.md`.
+
+Mesh faces are cut exactly against the buffered building footprint in local ENU XY. New boundary vertices interpolate Z positions, texture coordinates, and normals; Polygon holes, MultiPolygon components, and near-vertical faces are handled by the same clipping path.
